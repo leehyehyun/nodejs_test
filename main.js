@@ -1,148 +1,192 @@
 var http = require('http');
-var fs = require('fs');
 var url = require('url');
-var qs = require('querystring'); // post로 전송된 데이터 받을때 필요
-var temp = require('./lib/temp.js'); //함수를 템플릿화 한것을 모듈로 따로떼어 가져오도록 함 (./는 현재 디렉토리를 뜻함)
+var qs = require('querystring');
+var topic = require('./lib/topic.js');
+var template = require('./lib/template.js');
+var db = require('./lib/db.js');
 
 var app = http.createServer(function(request,response){
     var _url = request.url;
     var queryData = url.parse(_url, true).query;
     var pathname = url.parse(_url, true).pathname;
+    if(pathname === '/'){
+      if(queryData.id === undefined){ // 메인화면
+        db.query(`SELECT * FROM topic`, function(error, topics){
+          if(error){
+            throw error;
+          }
+          // console.log(topics);
+          var title = 'Welcome';
+          var description = 'Hello, Node.js';
+          var list = template.list(topics);
+          
+          var html = template.HTML(title, list,
+            `<h2>${title}</h2>${description}`,
+            `<a href="/create">create</a>`
+          );
+          response.writeHead(200);
+          response.end(html);
+        });
 
-    // console.log(url.parse(_url, true));
-    
-    if(pathname === "/"){
-        if(queryData.id === undefined){
-            fs.readdir('./data', function(error, filelist) {
-                var title = 'Welcome!!';
-                var description = 'Hello Node.js~~~ :)';
-                var list = temp.list(filelist);
-                var template = temp.HTML(title, list, 
-                    `<h2>${title}</h2>${description}`, 
-                    `<a href="/create">create</a>`);
-                response.writeHead(200);
-                response.end(template); 
-            });
-        }else{
-            fs.readFile(`data/${queryData.id}`, 'utf8', function(err, description){
-                fs.readdir('./data', function(error, filelist) {
-                    var title = queryData.id;
-                    var list = temp.list(filelist);
-                    var template=temp.HTML(title, list, 
-                        `<h2>${title}</h2>${description}`,
-                        `<a href="/create">create</a> 
-                        <a href="/update?id=${title}">update</a> 
-                        <form action="delete_process" method="post">
-                            <input type="hidden" name="id" value="${title}">
-                            <input type="submit" value="delete">
-                        </form>`);
-                    response.writeHead(200);
-                    response.end(template);
-                });
-            });
+        // topic.index(request,response);
+      } else { // 상세보기
+        db.query(`SELECT * FROM topic`, function(error, topics){
+          if(error){
+            throw error;
+          }
+          db.query(`SELECT * FROM topic LEFT JOIN author ON topic.author_id=author.id WHERE topic.id=?`, [queryData.id], function(error2, topic){
+            if(error2){
+              throw error2;
+            }
+            var title = topic[0].title;
+            var description = topic[0].description;
+            var list = template.list(topics);
+            
+            var html = template.HTML(title, list,
+              `<h2>${title}</h2>
+              <p>${description}</p>
+              by ${topic[0].name}
+              `,
+              `<a href="/create">create</a>
+              <a href="/update?id=${queryData.id}">update</a>
+              <form action="delete_process" method="post">
+                <input type="hidden" name="id" value="${queryData.id}">
+                <input type="submit" value="delete">
+              </form>`
+            );
+            
+            response.writeHead(200);
+            response.end(html);
+          });
+        });
+      }
+    } else if(pathname === '/create'){ // create 클릭함
+      db.query(`SELECT * FROM topic`, function(error, topics){
+        if(error){
+          throw error;
         }
-    }else if(pathname === "/create"){
-        fs.readFile(`data/${queryData.id}`, 'utf8', function(err, description){
-            fs.readdir('./data', function(error, filelist) {
-                var title = queryData.id;
-                var list = temp.list(filelist);
-                var template=temp.HTML(title, list, `
-                <form action="/process_create" method="post">
-                    <p><input type="text" name="title" placeholder="title"></p>
-                    <p>
-                        <textarea name="description" placeholder="description"></textarea>
-                    </p>
-                    <p>
-                        <input type="submit">
-                    </p>
-                </form>
-                `, '');
-                response.writeHead(200);
-                response.end(template);
-            });
-        });
-    }else if(pathname === "/process_create"){
-        var body = '';
-        request.on('data', function(data){
-            body += data; // 조각조각의 data를 수신한 뒤, data를 정보 수신이 될 때마다 body에 붙여넣음
-        });
-        request.on('end', function(){ // 정보 수신이 끝남
-            var post = qs.parse(body); // post데이터에 post정보가 들어있음
-            // console.log(post);
-            var title = post.title;
-            var description = post.description;
-            fs.writeFile(`data/${title}`, description, 'utf8', function(err){
-                response.writeHead(302, { // 리다이렉션
-                    Location: `/?id=${title}`
-                });
-                response.end();
-            });
-        });
-    }else if(pathname === "/update"){
-        fs.readFile(`data/${queryData.id}`, 'utf8', function(err, description){
-            fs.readdir('./data', function(error, filelist) {
-                var title = queryData.id;
-                var list = temp.list(filelist);
-                var template=temp.HTML(title, list, 
-                    `
-                    <form action="/update_process" method="post">
-                        <input type="hidden" name="id" value="${title}">
-                        <p><input type="text" name="title" placeholder="title" value="${title}"></p>
-                        <p>
-                            <textarea name="description" placeholder="description">${description}</textarea>
-                        </p>
-                        <p>
-                            <input type="submit">
-                        </p>
-                    </form>
-                    `,
-                    '');
-                response.writeHead(200);
-                response.end(template);
-            });
-        });
-    }else if(pathname === "/update_process"){
-        var body = '';
-        request.on('data', function(data){
-            body += data; // 조각조각의 data를 수신한 뒤, data를 정보 수신이 될 때마다 body에 붙여넣음
-        });
-        request.on('end', function(){ // 정보 수신이 끝남
-            var post = qs.parse(body); // post데이터에 post정보가 들어있음
-            // console.log(post);
-            var id = post.id;
-            var title = post.title;
-            var description = post.description;
+        // console.log(topics);
+        var title = 'Create';
+        var list = template.list(topics);
+        
+        db.query(`SELECT * FROM author`, function(error2, authors){
+          if(error2){
+            throw error2;
+          }
 
-            fs.rename(`data/${id}`, `data/${title}`,function(err){ // 파일이름 변경하기
-                fs.writeFile(`data/${title}`, description, 'utf8', function(err){ // 파일내용 변경하기
-                    response.writeHead(302, { // 리다이렉션
-                        Location: `/?id=${title}`
-                    });
-                    response.end();
-                });
-            });
+          var html = template.HTML(title, list,
+            `<form action="/create_process" method="post">
+              <p><input type="text" name="title" placeholder="title"></p>
+              <p>
+                <textarea name="description" placeholder="description"></textarea>
+              </p>
+              ${template.authorSelect(authors)}
+              <p>
+                <input type="submit">
+              </p>
+            </form>`,
+            ``
+          );
+          response.writeHead(200);
+          response.end(html);
         });
-    }else if(pathname === "/delete_process"){
-        var body = '';
-        request.on('data', function(data){
-            body += data; // 조각조각의 data를 수신한 뒤, data를 정보 수신이 될 때마다 body에 붙여넣음
+      });
+
+    } else if(pathname === '/create_process'){ // create에서 제출 클릭함
+      var body = '';
+      request.on('data', function(data){
+          body = body + data;
+      });
+      request.on('end', function(){
+          // console.log(body);
+          var post = qs.parse(body);
+
+          db.query(`
+          INSERT INTO topic (title,description,created,author_id) 
+           VALUES(?, ?, NOW(), ?)
+          `, [post.title, post.description, post.author], function(error, result){
+            if(error){
+              throw error;
+            }
+            response.writeHead(302, {Location: `/?id=${result.insertId}`});
+            response.end();
+          });
+      });
+    } else if(pathname === '/update'){
+      db.query(`SELECT * FROM topic`, function(error, topics){
+        if(error){
+          throw error;
+        }
+        db.query(`SELECT * FROM topic WHERE id=?`, [queryData.id], function(error2,topic){
+          if(error2){
+            throw error2;
+          }
+          
+          db.query(`SELECT * FROM author`, function(error3, authors){
+            if(error3){
+              throw error3;
+            }
+            var title = topic[0].title;
+            var list = template.list(topics);
+            
+            var html = template.HTML(title, list,
+              `<form action="/update_process" method="post">
+                <input type="hidden" name="id" value="${topic[0].id}">
+                <p><input type="text" name="title" placeholder="title" value="${topic[0].title}"></p>
+                <p>
+                  <textarea name="description" placeholder="description">${topic[0].description}</textarea>
+                </p>
+                <p>
+                ${template.authorSelect(authors, topic[0].author_id)}
+                </p>
+                <p>
+                  <input type="submit">
+                </p>
+              </form>`,
+              ``
+            );
+            response.writeHead(200);
+            response.end(html);
+          });
         });
-        request.on('end', function(){ // 정보 수신이 끝남
-            var post = qs.parse(body); // post데이터에 post정보가 들어있음
-            // console.log(post);
-            var id = post.id;
-            fs.unlink(`data/${id}`, function(err){
-                response.writeHead(302, { // 리다이렉션
-                    Location: `/`
-                });
-                response.end();
-            });
-        });
-    }else{
-        response.writeHead(404);
-        response.end('Not found');
+      });
+    } else if(pathname === '/update_process'){
+      var body = '';
+      request.on('data', function(data){
+          body = body + data;
+      });
+      request.on('end', function(){
+          var post = qs.parse(body);
+          console.log(body);
+
+          db.query(`UPDATE topic SET title=?, description=?, author_id=? WHERE id=?`,
+          [post.title, post.description, post.author, post.id],
+           function(error,result){
+            if(error){
+              throw error;
+            }
+            response.writeHead(302, {Location: `/?id=${post.id}`});
+            response.end();
+          });
+      });
+    } else if(pathname === '/delete_process'){
+      var body = '';
+      request.on('data', function(data){
+          body = body + data;
+      });
+      request.on('end', function(){
+          var post = qs.parse(body);
+          db.query(`DELETE FROM topic WHERE id=?`, [post.id], function(error,result){
+              if(error){
+                throw error;
+              }
+              response.writeHead(302, {Location: `/`});
+              response.end();
+          });
+      });
+    } else {
+      response.writeHead(404);
+      response.end('Not found');
     }
-
- 
 });
 app.listen(3000);
